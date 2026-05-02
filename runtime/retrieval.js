@@ -54,23 +54,39 @@ function cacheSet(key, results) {
 let knowledgeGraph = null;
 
 // Base weights for hybrid scoring
+// NOTE: In this dataset, emotion_tags are very sparse (most verses are tagged
+// "hope" or "neutral"). The real topical signal lives in keywords and
+// life_situations. Weights are calibrated accordingly.
 const WEIGHT_BASE = {
-  vector: 0.5,      // Vector similarity weight
-  emotion: 0.3,     // Emotion tags match weight
-  lifeSituation: 0.15, // Life situations match weight
-  keywords: 0.05    // Keywords match weight
+  vector: 0.40,          // Vector similarity weight
+  emotion: 0.15,         // Emotion tags match weight (sparse in data)
+  lifeSituation: 0.20,   // Life situations match weight (strong signal)
+  keywords: 0.25         // Keywords match weight (strong signal)
 };
 
 const EMOTIONAL_TERMS = new Set([
+  // core emotions
   "anxiety", "anxious", "fear", "afraid", "grief", "sad", "anger", "angry", "pain",
-  "guilt", "lonely", "loneliness", "stress", "depressed", "hopeless", "confused", "hurt",
-  "love", "compassion", "peace", "calm", "joy"
+  "guilt", "guilty", "lonely", "loneliness", "stress", "stressed", "depressed", "depression",
+  "hopeless", "hopelessness", "confused", "confusion", "hurt", "love", "compassion",
+  "peace", "peaceful", "calm", "joy",
+  // expanded coverage for all 28 emotions
+  "jealous", "jealousy", "envy", "envious", "greed", "greedy", "pride", "prideful",
+  "proud", "arrogant", "arrogance", "lust", "desire", "tempted", "temptation",
+  "lazy", "laziness", "procrastinate", "procrastination", "postpone", "postponing",
+  "demotivated", "unmotivated", "motivation", "forgetful", "forgetfulness", "forgetting",
+  "forgive", "forgiveness", "resentment", "discriminated", "discrimination",
+  "restless", "distracted", "overthinking", "overwhelmed", "worried", "worry",
+  "scared", "terrified", "nervous", "numb", "empty", "broken", "lost", "stuck",
+  "helpless", "ashamed", "shame", "regret", "sinful", "addicted",
+  "isolated", "alone", "frustrated", "irritated", "furious", "rage"
 ]);
 
 const SITUATIONAL_TERMS = new Set([
   "job", "career", "work", "office", "boss", "business", "money", "debt", "family",
   "marriage", "relationship", "parent", "children", "health", "study", "exam", "decision",
-  "conflict", "failure", "success", "loss", "responsibility", "leadership", "friend"
+  "conflict", "failure", "success", "loss", "responsibility", "leadership", "friend",
+  "future", "past", "people", "tasks", "temptation", "thoughts", "relationships"
 ]);
 
 const PHILOSOPHICAL_TERMS = new Set([
@@ -78,6 +94,87 @@ const PHILOSOPHICAL_TERMS = new Set([
   "knowledge", "devotion", "detachment", "duty", "action", "mind", "moksha", "liberation",
   "being", "existence", "ego", "nature", "faith", "virtue"
 ]);
+
+// ---------------------------------------------------------------------------
+// Synonym / stem expansion map — maps user words to canonical tags found in
+// verse metadata (emotion_tags, life_situations, keywords).
+// This bridges the gap between how users write and how verses are tagged.
+// ---------------------------------------------------------------------------
+const SYNONYM_MAP = {
+  // User word -> array of canonical terms to inject into query
+  "guilty":       ["guilt", "sinful", "shame", "regret"],
+  "guilt":        ["guilty", "sinful", "moral conflict"],
+  "jealous":      ["envy", "envious", "overcoming envy"],
+  "jealousy":     ["envy", "envious", "overcoming envy"],
+  "envious":      ["envy", "jealous", "overcoming envy"],
+  "lonely":       ["loneliness", "alone", "isolated"],
+  "loneliness":   ["lonely", "alone", "isolated"],
+  "lazy":         ["laziness", "procrastination", "inaction", "inertia"],
+  "laziness":     ["lazy", "procrastination", "inaction"],
+  "postponing":   ["procrastination", "laziness", "inaction"],
+  "procrastinate":["laziness", "inaction", "postponing"],
+  "greedy":       ["greed", "desire", "craving", "material"],
+  "greed":        ["greedy", "desire", "craving", "material"],
+  "tempted":      ["temptation", "desire", "lust", "struggling with temptation"],
+  "temptation":   ["tempted", "desire", "lust", "struggling with temptation"],
+  "restless":     ["restless mind", "uncontrolled", "mastery over the mind"],
+  "thoughts":     ["mind", "restless mind", "mastery over senses and mind"],
+  "control":      ["mastery", "discipline", "mastery over the mind"],
+  "prideful":     ["pride", "ego", "arrogance", "ego and pride", "false pride"],
+  "proud":        ["pride", "ego", "arrogance", "ego and pride"],
+  "pride":        ["ego", "arrogance", "ego and pride", "false pride"],
+  "arrogant":     ["pride", "ego", "ego and arrogance"],
+  "forgive":      ["forgiveness", "resentment", "anger"],
+  "forgiveness":  ["forgive", "resentment", "letting go"],
+  "demotivated":  ["unmotivated", "laziness", "inaction", "inertia"],
+  "unmotivated":  ["demotivated", "laziness", "inaction"],
+  "hopeless":     ["hopelessness", "despair", "losing hope"],
+  "hopelessness": ["hopeless", "despair", "losing hope"],
+  "hope":         ["hopeful", "faith", "trust"],
+  "anxious":      ["anxiety", "worry", "stress", "fear"],
+  "anxiety":      ["anxious", "worry", "stress", "fear"],
+  "afraid":       ["fear", "scared", "dread"],
+  "scared":       ["fear", "afraid", "dread"],
+  "angry":        ["anger", "rage", "frustrated", "anger as spiritual obstacle"],
+  "anger":        ["angry", "rage", "frustrated", "anger as spiritual obstacle"],
+  "sad":          ["grief", "sorrow", "loss"],
+  "depressed":    ["depression", "hopeless", "numb", "empty"],
+  "confused":     ["confusion", "lost", "lack of clarity"],
+  "confusion":    ["confused", "lost", "lack of clarity"],
+  "lost":         ["confusion", "lack of clarity", "search for meaning"],
+  "focused":      ["focus", "concentration", "mastery over the mind"],
+  "forgetting":   ["forgetfulness", "memory", "forgetful"],
+  "forgetful":    ["forgetfulness", "memory", "forgetting"],
+  "struggling":   ["struggle", "difficulty", "conflict", "inner conflict"],
+  "overwhelmed":  ["stress", "anxiety", "overwhelm"],
+  "hurt":         ["pain", "grief", "anger", "resentment"],
+  "success":      ["fruits of action", "material", "achievement"],
+  "material":     ["desire", "greed", "attachment", "sense desires and craving"],
+  "future":       ["anxiety", "fear of consequences", "outcomes"],
+  "past":         ["regret", "guilt", "memory", "attachment"]
+};
+
+/**
+ * Expand raw query terms with synonyms and canonical forms.
+ * Returns a deduplicated array of all original + expanded terms.
+ */
+function expandQueryTerms(rawTerms) {
+  const expanded = new Set(rawTerms);
+  for (const term of rawTerms) {
+    const synonyms = SYNONYM_MAP[term];
+    if (synonyms) {
+      for (const syn of synonyms) {
+        // Add multi-word synonyms as-is (they'll be matched as substrings)
+        expanded.add(syn);
+        // Also add individual words from multi-word synonyms
+        for (const word of syn.split(/\s+/)) {
+          if (word.length > 2) expanded.add(word);
+        }
+      }
+    }
+  }
+  return [...expanded];
+}
 
 function clamp01(value) {
   const num = Number(value) || 0;
@@ -143,25 +240,28 @@ function getAdaptiveWeights(queryType, classificationScores) {
   const adaptive = { ...WEIGHT_BASE };
 
   if (queryType === "emotional") {
-    adaptive.emotion += 0.18;
-    adaptive.vector -= 0.1;
-    adaptive.lifeSituation -= 0.05;
-    adaptive.keywords -= 0.03;
+    // For emotional queries, boost metadata signals moderately
+    adaptive.emotion += 0.08;
+    adaptive.lifeSituation += 0.05;
+    adaptive.keywords += 0.05;
+    adaptive.vector -= 0.18;
   } else if (queryType === "situational") {
-    adaptive.lifeSituation += 0.2;
-    adaptive.vector -= 0.1;
-    adaptive.emotion -= 0.06;
-    adaptive.keywords -= 0.04;
+    adaptive.lifeSituation += 0.12;
+    adaptive.keywords += 0.03;
+    adaptive.vector -= 0.10;
+    adaptive.emotion -= 0.05;
   } else {
-    adaptive.vector += 0.1;
-    adaptive.keywords += 0.04;
+    // philosophical — trust vector more
+    adaptive.vector += 0.10;
+    adaptive.keywords += 0.03;
     adaptive.emotion -= 0.08;
-    adaptive.lifeSituation -= 0.06;
+    adaptive.lifeSituation -= 0.05;
   }
 
   // Confidence bump for stronger signals
   if (classificationScores.emotional >= 2) {
-    adaptive.emotion += 0.05;
+    adaptive.emotion += 0.03;
+    adaptive.keywords += 0.02;
   }
   if (classificationScores.situational >= 2) {
     adaptive.lifeSituation += 0.05;
@@ -402,23 +502,81 @@ export function getConnectedVerses(verseId, depth = 1) {
 function parseQuery(query) {
   return String(query || "")
     .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, " ")   // strip punctuation
     .split(/\s+/)
+    .map(t => t.replace(/^'+|'+$/g, ""))  // trim quotes
     .filter(term => term.length > 2); // Filter out short words
 }
 
 /**
+ * Stopwords for metadata matching — generic terms that appear in many verse
+ * keywords/life_situations and cause false positives when matched loosely.
+ */
+const METADATA_STOPWORDS = new Set([
+  "the", "and", "for", "from", "with", "over", "that", "this", "not", "all",
+  "action", "nature", "field", "one", "spiritual", "war", "power", "moral",
+  "ones", "divine", "self", "true", "dharma", "false"
+]);
+
+/**
+ * Bidirectional fuzzy match: checks if ANY query term is contained in
+ * the tag OR if the tag is contained in ANY query term.
+ * This handles both directions:
+ *   - "guilt" (query) matching "guilty" (tag) — query substring of tag
+ *   - "guilty" (query) matching "guilt" (tag) — tag substring of query
+ *   - "anger as spiritual obstacle" (expanded) matching keyword
+ *
+ * Safeguards against false positives:
+ *   - Skips stopwords
+ *   - Requires minimum 4-char overlap for individual word matching
+ *   - Multi-word query terms (from synonym expansion) must match as full phrases
+ */
+function fuzzyMatch(tag, queryTerms) {
+  const lowerTag = tag.toLowerCase();
+  for (const term of queryTerms) {
+    if (METADATA_STOPWORDS.has(term)) continue;
+
+    // Multi-word expanded terms (e.g. "struggling with temptation"):
+    // require full phrase match inside the tag
+    if (term.includes(" ")) {
+      if (lowerTag.includes(term)) return true;
+      continue;
+    }
+
+    // Single-word terms: require minimum 4 characters for safety
+    if (term.length < 4) continue;
+
+    // Direct match: full term in tag or tag in term
+    if (lowerTag.includes(term)) return true;
+    if (term.length >= 5 && lowerTag.length <= 12 && term.includes(lowerTag)) return true;
+
+    // Word-level match within multi-word tags
+    const tagWords = lowerTag.split(/\s+/);
+    for (const tw of tagWords) {
+      if (tw.length < 4 || METADATA_STOPWORDS.has(tw)) continue;
+      // Require significant overlap: at least 4 chars shared
+      if (tw.includes(term) || (term.length >= 5 && tw.length >= 5 && term.includes(tw))) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Calculate emotion tags match score (0-1)
+ * Uses bidirectional fuzzy matching + counts how many query terms
+ * match (hit-count scoring) rather than ratio-of-tags scoring.
  */
 function calculateEmotionScore(verse, queryTerms) {
   if (!verse.emotion_tags || verse.emotion_tags.length === 0) {
     return 0;
   }
 
-  const emotionMatches = verse.emotion_tags.filter(emotion =>
-    queryTerms.some(term => emotion.toLowerCase().includes(term))
-  );
+  const matchedTags = verse.emotion_tags.filter(emotion => fuzzyMatch(emotion, queryTerms));
 
-  return emotionMatches.length / verse.emotion_tags.length;
+  // Use max(ratio-of-matched, hit-boost) so even a single strong match scores well
+  const ratioScore = matchedTags.length / verse.emotion_tags.length;
+  const hitBoost = matchedTags.length > 0 ? Math.min(1, 0.5 + matchedTags.length * 0.25) : 0;
+  return Math.max(ratioScore, hitBoost);
 }
 
 /**
@@ -429,11 +587,11 @@ function calculateLifeSituationScore(verse, queryTerms) {
     return 0;
   }
 
-  const situationMatches = verse.life_situations.filter(situation =>
-    queryTerms.some(term => situation.toLowerCase().includes(term))
-  );
+  const matchedSituations = verse.life_situations.filter(situation => fuzzyMatch(situation, queryTerms));
 
-  return situationMatches.length / verse.life_situations.length;
+  const ratioScore = matchedSituations.length / verse.life_situations.length;
+  const hitBoost = matchedSituations.length > 0 ? Math.min(1, 0.4 + matchedSituations.length * 0.3) : 0;
+  return Math.max(ratioScore, hitBoost);
 }
 
 /**
@@ -444,11 +602,11 @@ function calculateKeywordScore(verse, queryTerms) {
     return 0;
   }
 
-  const keywordMatches = verse.keywords.filter(keyword =>
-    queryTerms.some(term => keyword.toLowerCase().includes(term))
-  );
+  const matchedKeywords = verse.keywords.filter(keyword => fuzzyMatch(keyword, queryTerms));
 
-  return keywordMatches.length / verse.keywords.length;
+  const ratioScore = matchedKeywords.length / verse.keywords.length;
+  const hitBoost = matchedKeywords.length > 0 ? Math.min(1, 0.3 + matchedKeywords.length * 0.2) : 0;
+  return Math.max(ratioScore, hitBoost);
 }
 
 /**
@@ -589,7 +747,7 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
           ...(intentLabels.situation ? parseQuery(intentLabels.situation) : [])
         ]
       : [];
-    const queryTerms = [...new Set([...rawTerms, ...labelTerms])];
+    const queryTerms = expandQueryTerms([...new Set([...rawTerms, ...labelTerms])]);
 
     // Determine adaptive weights: intent bias takes precedence over heuristics
     let adaptiveWeights;
@@ -624,20 +782,23 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
       return getMetadataOnlySearch(safeQuery, safeTopK, intentBias, intentLabels);
     }
 
-    // 2. Combine vector scores with metadata scores ONLY for vector candidates
-    const hybridResults = vectorResults.map(result => {
-      const verseId = result.id;
-      const verse = verseMap.get(verseId);
+    // 2. Build a map of vector scores by verse ID
+    const vectorScoreMap = new Map();
+    for (const result of vectorResults) {
+      vectorScoreMap.set(result.id, result.similarity);
+    }
 
-      // Get vector similarity score
-      const vectorScore = result.similarity;
+    // 3. Score ALL verses with metadata, merge with vector scores.
+    //    This ensures strong metadata matches aren't lost just because
+    //    FAISS didn't surface them in its top candidates.
+    const allScoredResults = data.map(verse => {
+      const verseId = `${verse.chapter}-${verse.verse}`;
+      const vectorScore = vectorScoreMap.get(verseId) || 0;
 
-      // Calculate metadata scores
       const emotionScore = calculateEmotionScore(verse, queryTerms);
       const lifeSituationScore = calculateLifeSituationScore(verse, queryTerms);
       const keywordScore = calculateKeywordScore(verse, queryTerms);
 
-      // Create score breakdown
       const scoreBreakdown = createScoreBreakdown(
         vectorScore,
         emotionScore,
@@ -660,11 +821,9 @@ export async function getTopMatches(query, topK = 3, intentBias = null, intentLa
       };
     });
 
-    // 4. Sort — do NOT filter to > 0: when the vector store IS available, vector
-    // scores alone can be nonzero even if metadata scores are 0.
-    const sortedResults = hybridResults.sort((a, b) => b.final_score - a.final_score);
+    // 4. Sort by final score
+    const sortedResults = allScoredResults.sort((a, b) => b.final_score - a.final_score);
     const positiveResults = sortedResults.filter(r => r.final_score > 0);
-    // Guarantee at least topK candidates for the KG re-ranking stage
     const resultPool = positiveResults.length >= safeTopK ? positiveResults : sortedResults;
 
     // 5. Remove duplicates
@@ -695,7 +854,7 @@ function getMetadataOnlySearch(query, topK = 3, intentBias = null, intentLabels 
         ...(intentLabels.situation ? parseQuery(intentLabels.situation) : [])
       ]
     : [];
-  const queryTerms = [...new Set([...rawQueryTerms, ...labelTerms])];
+  const queryTerms = expandQueryTerms([...new Set([...rawQueryTerms, ...labelTerms])]);
 
   let adaptiveWeights;
   let queryType;

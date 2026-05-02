@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node runtime/pipeline.js",
-    "serve": "node server.js"
+    "serve": "node server.js",
+    "eval:retrieval": "node tools/eval/retrieval_eval.js"
   },
   "dependencies": {
     "@xenova/transformers": "^2.0.1",

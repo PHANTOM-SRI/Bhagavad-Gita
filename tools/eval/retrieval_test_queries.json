@@ -1,0 +1,62 @@
+[
+  {
+    "query": "I feel guilty about things I've done in the past and can't move on",
+    "relevant_ids": ["3-36", "4-36", "5-15", "16-1"],
+    "note": "Verses about sinful action, karma, and moral purification"
+  },
+  {
+    "query": "I keep forgetting things and can't stay mentally focused",
+    "relevant_ids": ["2-63", "6-34", "6-35"],
+    "note": "Verses about restless mind, memory loss, and mastery over mind"
+  },
+  {
+    "query": "I feel jealous when I see others doing better than me",
+    "relevant_ids": ["3-31", "3-32", "9-29", "16-1", "16-19", "18-71"],
+    "note": "Verses about overcoming envy and envy as spiritual obstacle"
+  },
+  {
+    "query": "I've been feeling very lonely even when I'm around people",
+    "relevant_ids": ["2-71", "6-10", "6-29", "6-30"],
+    "note": "Verses about inner peace, self-sufficiency, and the witnessing self"
+  },
+  {
+    "query": "I feel lazy and keep postponing important tasks",
+    "relevant_ids": ["4-16", "4-17", "4-18", "18-59", "3-8"],
+    "note": "Verses about inaction vs action, duty, and consequences of idleness"
+  },
+  {
+    "query": "I feel greedy for success and material things and it bothers me",
+    "relevant_ids": ["18-27", "5-12", "2-62", "16-13"],
+    "note": "Verses about greed, desire, fruits of action, and attachment"
+  },
+  {
+    "query": "I feel tempted to do things I know are not right",
+    "relevant_ids": ["3-37", "3-38", "3-39", "3-40", "3-41", "3-43"],
+    "note": "Verses about lust, desire, temptation, and controlling the senses"
+  },
+  {
+    "query": "My mind is constantly restless and I can't control my thoughts",
+    "relevant_ids": ["6-33", "6-34", "6-35", "2-61", "2-63"],
+    "note": "Verses about restless mind, mind control, and mastery over senses"
+  },
+  {
+    "query": "I feel prideful and it's affecting my relationships",
+    "relevant_ids": ["16-4", "16-18", "16-19", "17-18"],
+    "note": "Verses about ego, pride, arrogance, and false identity"
+  },
+  {
+    "query": "I'm struggling to forgive someone who hurt me deeply",
+    "relevant_ids": ["16-1", "16-3", "12-13", "12-14"],
+    "note": "Verses about tolerance, compassion, absence of malice"
+  },
+  {
+    "query": "I feel demotivated and don't feel like doing anything",
+    "relevant_ids": ["2-3", "2-7", "2-9", "1-46", "4-16"],
+    "note": "Verses about loss of motivation, depression, and taking action"
+  },
+  {
+    "query": "I feel like I've lost all hope for my future",
+    "relevant_ids": ["6-35", "18-66", "2-3", "2-7"],
+    "note": "Verses about divine strength, surrender, and overcoming despair"
+  }
+]

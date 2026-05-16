@@ -235,12 +235,3 @@ python embeddings.py   # generate embeddings offline (alternative to JS auto-bui
 ```
 
 ---
-
-## Recommended next engineering steps
-
-1. **CI gate:** run `npm run eval:retrieval` in CI and fail the build if NDCG@5 drops below a threshold. Commit the baseline `outputs/retrieval_eval_results.json`.
-2. **Containerise:** add a `Dockerfile` with a multi-stage build (npm install → copy data → expose 3000). Add `docker-compose.yml` to co-locate with an Ollama container.
-3. **Index versioning:** hash `data/verses.json` and store it alongside `faiss_index.bin`; rebuild automatically when the corpus changes.
-4. **Streaming responses:** pipe Ollama's streaming API through to the frontend for lower perceived latency on slower hardware.
-
----

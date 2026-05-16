@@ -1,107 +1,246 @@
-# Bhagavad-Gita — Engineering README
+# Bhagavad-Gita AI Assistant
 
-This repository implements a production-oriented retrieval assistant over the Bhagavad-Gita corpus. The README is written for engineers and reviewers: it explains the architecture, design decisions, reproducibility steps, observability, and extensibility points that make this project review-ready.
+A production-oriented retrieval assistant over the Bhagavad-Gita corpus. Queries are understood through intent classification, answered via hybrid FAISS + knowledge-graph retrieval, and enhanced with an optional local LLM (Ollama). The system is entirely self-contained — no external API keys required to run.
 
-**What reviewers should notice**
-- **Reproducibility:** offline embedding pipeline with deterministic ingestion.
-- **Separation of concerns:** ingestion, embedding, retrieval, and runtime are decoupled for independent scaling.
-- **Observability & evaluation:** evaluation harness and outputs are included for measurable quality checks.
-- **Extensibility:** clear abstraction points for embedding providers, vector stores, and runtime responders.
+---
 
-**Repository layout (quick)**
+## What reviewers should notice
 
-- [data/](data/) — source JSON: `verses.json`, `purports.json`, `metadata.json`.
-- [frontend/](frontend/) — minimal UI and example integrations (`gita_assistant.html`, `index.html`).
-- [python-backend/](python-backend/) — ingestion, embedding interface, and search utilities.
-- [runtime/](runtime/) — Node.js orchestration: pipeline, intent classification, and runtime adapters.
-- [tools/](tools/) — evaluation harnesses and test queries.
-- [outputs/](outputs/) — generated artifacts: `answers.json`, `history.json`, `retrieval_eval_results.json`.
+- **Real RAG pipeline:** query → intent classification → hybrid vector + metadata retrieval → knowledge-graph re-ranking → LLM synthesis with deterministic fallback.
+- **Self-healing index:** server auto-builds the FAISS index on first start if `data/faiss_index.bin` is missing.
+- **Dual query modes:** emotional/action support and factual/informational study — each with a distinct response shape.
+- **Observability:** structured JSON request log, `/stats` endpoint, `/health` endpoint, and replay artifacts in `outputs/`.
+- **Separation of concerns:** embedding, retrieval, intent classification, practice generation, and HTTP serving are each in their own module.
+- **No hard secrets:** all runtime configuration is env-var driven (see `.env.example`).
 
-**Architecture (concise)**
+---
+
+## Screenshots
+
+**Landing Page** — Krishna artwork hero with step-by-step onboarding panel:
+
+![Landing page](docs/screenshots/01_home.png)
+
+**Ask Guidance** — query input with emotional context tags; **AI Response** — intent classification panel (query mode, emotion, intent type) + verse cards with insights:
+
+| Ask Guidance | AI Response |
+|:---:|:---:|
+| ![Ask guidance interface](docs/screenshots/02_ask_guidance.png) | ![Response with intent classification and verse guidance](docs/screenshots/03_response.png) |
+
+**Daily Practices** — emotion-indexed card grid, each sourced from an exact Gita verse with a practical daily application:
+
+![Daily Practices tab](docs/screenshots/04_daily_practices.png)
+
+---
+
+## Repository layout
+
+```
+.
+├── server.js                    # Express HTTP server — API surface + rate limiting
+├── package.json                 # Node.js manifest (ESM, dependencies)
+├── .env.example                 # Config template (copy to .env)
+│
+├── runtime/
+│   ├── vectorStore.js           # FAISS index build/load/search (Xenova/all-MiniLM-L6-v2)
+│   ├── retrieval.js             # Hybrid retrieval: vector + emotion/keyword/life-situation scoring + KG edges
+│   ├── llmIntentClassifier.js   # LLM-based intent + emotion extraction (Ollama, with rule-based fallback)
+│   ├── pipeline.js              # Main orchestrator: intent → retrieval → KG re-rank → LLM → response
+│   └── practiceGenerator.js    # Rule-based daily practice suggestions keyed by emotion
+│
+├── data/
+│   ├── verses.json              # 700+ verses with translations, keywords, emotion_tags, life_situations
+│   ├── purports.json            # Commentary summaries and core ideas per verse
+│   ├── metadata.json            # FAISS index metadata (auto-generated on first build)
+│   └── faiss_index.bin          # Persisted FAISS flat L2 index (auto-generated on first build)
+│
+├── frontend/
+│   ├── index.html               # Main chat UI (served as static files)
+│   └── gita_assistant.html      # Standalone assistant demo
+│
+├── tools/
+│   └── eval/
+│       ├── retrieval_eval.js         # Evaluation harness: Precision@K, MRR, MAP, NDCG
+│       └── retrieval_test_queries.json  # Labelled test query set
+│
+├── outputs/                     # Runtime-generated artifacts (gitignored)
+│   ├── answers.json             # Last pipeline response
+│   ├── history.json             # Rolling 50-entry session history
+│   ├── requests.log             # Structured JSON request log (one entry per line)
+│   └── retrieval_eval_results.json  # Latest eval run results
+│
+└── python-backend/              # Utility scripts (offline data prep only)
+    ├── loader.py                # Document normalization and export
+    ├── embeddings.py            # Offline embedding generation helper
+    ├── search.py                # Python-side retrieval primitives
+    └── requirements.txt
+```
+
+---
+
+## Architecture
 
 ```mermaid
-flowchart LR
-A[Raw JSON data] --> B[Ingestion]
-B --> C[Document store + metadata]
-C --> D[Embedding pipeline]
-D --> E[Vector index]
-E --> F[Runtime retrieval (kNN)]
-F --> G[Response composition + UI]
+flowchart TD
+    Q([User Query]) --> IC[llmIntentClassifier.js\nemotion · situation · query_mode · search_bias]
+    IC --> HR[retrieval.js\nhybrid score: vector + emotion + keywords + life_situation]
+    HR --> KG[KG re-ranker\nknowledge-graph edge signal · 85/15 blend]
+    KG --> LLM{Ollama available?}
+    LLM -- yes --> OL[LLM synthesis\ninsight + connection per verse]
+    LLM -- no  --> FB[Deterministic fallback\ntemplate-driven guidance]
+    OL --> OUT([Structured JSON response])
+    FB --> OUT
+
+    subgraph VectorStore [vectorStore.js]
+        VS[FAISS IndexFlatL2\nXenova/all-MiniLM-L6-v2\n384-dim embeddings]
+    end
+
+    HR -. kNN search .-> VS
 ```
 
-Key runtime pieces:
-- `python-backend/loader.py` — deterministic ingestion and document normalization.
-- `python-backend/embeddings.py` — embedding abstraction; currently wired to offline provider but designed for pluggable backends.
-- `python-backend/search.py` — retrieval primitives and filtering.
-- `runtime/pipeline.js` — orchestrates retrieval, intent classification, and response construction.
+### Key design decisions
 
-**Design principles**
-- Single-responsibility modules: keep ingestion, embedding, and serving orthogonal.
-- Idempotent ingest: re-running the pipeline must produce the same canonical document IDs and vectors.
-- Testable evaluation: retrieval tests and metrics live in `tools/eval/` and output to `outputs/` for CI checks.
-- Config-first: model and index parameters live in small config objects (easy to surface to env/CI).
+| Decision | Rationale |
+|---|---|
+| FAISS `IndexFlatL2` with unit-normalized vectors | Exact kNN; cosine similarity via `1 − d²/2` conversion; simple to persist and reload. |
+| Hybrid scoring in `retrieval.js` | Vector similarity alone misses emotion/life-situation metadata; configurable per-query bias weights let the intent classifier tune the retrieval blend. |
+| KG re-ranking (15% signal) | Edges in `verses.json` (`shared_principles`, `shared_emotion_tags`) provide graph-structural signal without a separate graph DB. |
+| Deterministic fallback before LLM call | Response quality is guaranteed even when Ollama is unavailable or returns malformed JSON. |
+| Dual query modes | Factual queries (e.g. "what does verse 2.47 say?") get a verse-study layout; emotional queries get guidance + practice + related verses. |
+| Session memory (50-entry rolling) | Last 2 queries injected as context into the LLM prompt for conversational coherence. |
 
-**Developer quickstart**
+---
 
-Prerequisites: Python 3.8+, Node.js 16+, `npm` or `yarn`.
+## Developer quickstart
 
-1) Install Python deps:
+**Prerequisites:** Node.js 18+, `npm`.  
+Ollama is optional — the pipeline degrades gracefully to rule-based fallback if it is not running.
 
-```bash
-cd python-backend
-python -m pip install -r requirements.txt
-```
-
-2) (Optional) Install Node deps for runtime tooling:
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-3) Run ingestion + embeddings (reproducible):
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+# Edit .env if you want to change the Ollama model or port
+```
+
+Key variables (all optional — defaults shown):
+
+```
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.2:1b
+OLLAMA_TIMEOUT_MS=120000
+TOP_K_RETRIEVAL=9
+TOP_K_FINAL=3
+PORT=3000
+```
+
+### 3. Start the server
+
+```bash
+npm run serve
+# → http://localhost:3000
+```
+
+On first start the server will auto-build the FAISS index from `data/verses.json` (~2–3 min). Subsequent starts load the persisted `data/faiss_index.bin` instantly.
+
+### 4. (Optional) Run with a local LLM
+
+```bash
+# Install Ollama from https://ollama.com, then:
+ollama pull llama3.2:1b
+# The server will detect it automatically on the next /ask call
+```
+
+---
+
+## API reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/ask` | Main query endpoint. Body: `{ "query": "..." }` |
+| `GET` | `/chapters` | All 18 chapters with verse counts, themes, and sample verse |
+| `GET` | `/chapter/:n/verses` | All verses in chapter `n` |
+| `GET` | `/daily-practices` | Practice suggestions for all supported emotions |
+| `GET` | `/stats` | Aggregate stats from `outputs/requests.log` |
+| `GET` | `/health` | Server health: uptime, vector store state, verse count |
+
+**Rate limiting:** 15 requests per IP per minute.
+
+### Example `/ask` response (emotional mode)
+
+```json
+{
+  "understanding": {
+    "query_mode": "emotional",
+    "emotion": "anxiety",
+    "emotion_confidence": 0.92,
+    "situation": "career",
+    "intent_type": "emotional_support"
+  },
+  "mode": "emotional",
+  "guidance": [
+    {
+      "chapter": 2,
+      "verse": 47,
+      "translation": "You have a right to perform your prescribed duties...",
+      "insight": "Focus on effort, not results",
+      "connection": "Your anxiety comes from worrying about future outcomes"
+    }
+  ],
+  "final_advice": "Take one small action today without worrying about results",
+  "related_verses": [...],
+  "practice": { ... }
+}
+```
+
+---
+
+## Evaluation
+
+Run the retrieval evaluation harness against the labelled test query set:
+
+```bash
+npm run eval:retrieval
+# Writes results to outputs/retrieval_eval_results.json
+```
+
+Metrics computed: Precision@K, Recall@K, MRR, MAP@K, NDCG@K.
+
+---
+
+## Observability
+
+- **`GET /health`** — live server status, FAISS state, verse count, Node version.
+- **`GET /stats`** — aggregated from `outputs/requests.log`: total requests, avg latency, LLM success rate, top emotions.
+- **`outputs/requests.log`** — one structured JSON line per request; suitable for log pipeline ingestion.
+- **`outputs/history.json`** — rolling 50-entry session history for replay-based QA.
+
+---
+
+## Python backend (utility, not required to run)
+
+`python-backend/` contains offline data-preparation utilities used during corpus authoring. The live server is pure Node.js and does not depend on the Python scripts at runtime.
 
 ```bash
 cd python-backend
-python loader.py         # normalize and export documents
-python embeddings.py     # generate vector embeddings (offline)
+pip install -r requirements.txt
+python loader.py       # normalize and export documents
+python embeddings.py   # generate embeddings offline (alternative to JS auto-build)
 ```
 
-4) Start the local server for UI/testing:
+---
 
-```bash
-node server.js
-# then open http://localhost:3000
-```
+## Recommended next engineering steps
 
-**Evaluation & metrics**
-
-- Use `tools/eval/retrieval_eval.js` with `tools/eval/retrieval_test_queries.json` to compute retrieval accuracy and expose regression when changing models or tokenizers.
-- Results are recorded to `outputs/retrieval_eval_results.json` to support PR-level gates.
-
-**Observability & QA**
-- Emit deterministic artifacts: ingested documents, vector dumps, and top-k retrievals.
-- Add lightweight logging in `runtime/pipeline.js` and `python-backend/search.py` with structured JSON for easy ingestion into log pipelines.
-- Use `outputs/history.json` and `outputs/answers.json` for replay-based QA.
-
-**Performance & scaling notes**
-- Keep embedding generation offline and shardable (parallelize by file/chunk in `loader.py`).
-- Vector store abstraction allows swapping between an in-memory ANN (faiss/hnswlib) and a managed service.
-- Cache hot queries at the runtime layer to reduce retrieval QPS.
-
-**Security & privacy**
-- No secrets are checked into source. Any provider keys should be injected via env vars in CI/containers.
-- Validate and sanitize user inputs at the runtime boundary to avoid injection into templates.
-
-**Files reviewers should inspect**
-- [python-backend/loader.py](python-backend/loader.py) — ingestion logic and canonicalization.
-- [python-backend/embeddings.py](python-backend/embeddings.py) — embedding interface and adapters.
-- [python-backend/search.py](python-backend/search.py) — retrieval and ranking heuristics.
-- [runtime/pipeline.js](runtime/pipeline.js) — orchestration and response assembly.
-- [tools/eval/retrieval_eval.js](tools/eval/retrieval_eval.js) — evaluation harness and metrics.
-
-**Recommended next engineering steps (high-impact)**
-1. Add CI that runs `python-backend/loader.py` + `embeddings.py` and checks that `outputs/retrieval_eval_results.json` does not regress.
-2. Add a `Dockerfile` for `python-backend` and `runtime` and a `docker-compose.yml` for local integration testing.
-3. Add `pytest` tests for ingestion normalization and a small retrieval integration test.
+1. **CI gate:** run `npm run eval:retrieval` in CI and fail the build if NDCG@5 drops below a threshold. Commit the baseline `outputs/retrieval_eval_results.json`.
+2. **Containerise:** add a `Dockerfile` with a multi-stage build (npm install → copy data → expose 3000). Add `docker-compose.yml` to co-locate with an Ollama container.
+3. **Index versioning:** hash `data/verses.json` and store it alongside `faiss_index.bin`; rebuild automatically when the corpus changes.
+4. **Streaming responses:** pipe Ollama's streaming API through to the frontend for lower perceived latency on slower hardware.
 
 ---

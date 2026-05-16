@@ -21,12 +21,12 @@ This repository implements a production-oriented retrieval assistant over the Bh
 
 ```mermaid
 flowchart LR
-	A[Raw JSON data] --> B[Ingestion]
-	B --> C[Document store + metadata]
-	C --> D[Embedding pipeline]
-	D --> E[Vector index]
-	E --> F[Runtime retrieval (kNN)]
-	F --> G[Response composition + UI]
+A[Raw JSON data] --> B[Ingestion]
+B --> C[Document store + metadata]
+C --> D[Embedding pipeline]
+D --> E[Vector index]
+E --> F[Runtime retrieval (kNN)]
+F --> G[Response composition + UI]
 ```
 
 Key runtime pieces:
@@ -43,7 +43,7 @@ Key runtime pieces:
 
 **Developer quickstart**
 
-Prerequisites: Python 3.8+, Node 16+, `npm` or `yarn`.
+Prerequisites: Python 3.8+, Node.js 16+, `npm` or `yarn`.
 
 1) Install Python deps:
 

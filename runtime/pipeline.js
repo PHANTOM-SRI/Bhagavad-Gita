@@ -26,9 +26,6 @@ if (fs.existsSync(purportsDataPath)) {
   );
 }
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:1b";
-const OLLAMA_TIMEOUT = parseInt(process.env.OLLAMA_TIMEOUT_MS || "120000", 10);
 const TOP_K_RETRIEVAL = parseInt(process.env.TOP_K_RETRIEVAL || "9", 10);
 const TOP_K_FINAL = parseInt(process.env.TOP_K_FINAL || "3", 10);
 

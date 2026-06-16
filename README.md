@@ -1,6 +1,6 @@
 # Bhagavad-Gita AI Assistant
 
-A production-oriented retrieval assistant over the Bhagavad-Gita corpus. Queries are understood through intent classification, answered via hybrid FAISS + knowledge-graph retrieval, and enhanced with an optional local LLM (Ollama). The system is entirely self-contained — no external API keys required to run.
+A production-oriented retrieval assistant over the Bhagavad-Gita corpus. Queries are understood through intent classification, answered via hybrid FAISS + knowledge-graph retrieval, and enhanced with an optional local LLM (Gemini API). The system is entirely self-contained — no external API keys required to run.
 
 ---
 
@@ -44,7 +44,7 @@ A production-oriented retrieval assistant over the Bhagavad-Gita corpus. Queries
 ├── runtime/
 │   ├── vectorStore.js           # FAISS index build/load/search (Xenova/all-MiniLM-L6-v2)
 │   ├── retrieval.js             # Hybrid retrieval: vector + emotion/keyword/life-situation scoring + KG edges
-│   ├── llmIntentClassifier.js   # LLM-based intent + emotion extraction (Ollama, with rule-based fallback)
+│   ├── llmIntentClassifier.js   # LLM-based intent + emotion extraction (Gemini API, with rule-based fallback)
 │   ├── pipeline.js              # Main orchestrator: intent → retrieval → KG re-rank → LLM → response
 │   └── practiceGenerator.js    # Rule-based daily practice suggestions keyed by emotion
 │
@@ -85,7 +85,7 @@ flowchart TD
     Q([User Query]) --> IC[llmIntentClassifier.js\nemotion · situation · query_mode · search_bias]
     IC --> HR[retrieval.js\nhybrid score: vector + emotion + keywords + life_situation]
     HR --> KG[KG re-ranker\nknowledge-graph edge signal · 85/15 blend]
-    KG --> LLM{Ollama available?}
+    KG --> LLM{Gemini API available?}
     LLM -- yes --> OL[LLM synthesis\ninsight + connection per verse]
     LLM -- no  --> FB[Deterministic fallback\ntemplate-driven guidance]
     OL --> OUT([Structured JSON response])
@@ -105,7 +105,7 @@ flowchart TD
 | FAISS `IndexFlatL2` with unit-normalized vectors | Exact kNN; cosine similarity via `1 − d²/2` conversion; simple to persist and reload. |
 | Hybrid scoring in `retrieval.js` | Vector similarity alone misses emotion/life-situation metadata; configurable per-query bias weights let the intent classifier tune the retrieval blend. |
 | KG re-ranking (15% signal) | Edges in `verses.json` (`shared_principles`, `shared_emotion_tags`) provide graph-structural signal without a separate graph DB. |
-| Deterministic fallback before LLM call | Response quality is guaranteed even when Ollama is unavailable or returns malformed JSON. |
+| Deterministic fallback before LLM call | Response quality is guaranteed even when Gemini API is unavailable or returns malformed JSON. |
 | Dual query modes | Factual queries (e.g. "what does verse 2.47 say?") get a verse-study layout; emotional queries get guidance + practice + related verses. |
 | Session memory (50-entry rolling) | Last 2 queries injected as context into the LLM prompt for conversational coherence. |
 
@@ -114,7 +114,7 @@ flowchart TD
 ## Developer quickstart
 
 **Prerequisites:** Node.js 18+, `npm`.  
-Ollama is optional — the pipeline degrades gracefully to rule-based fallback if it is not running.
+Gemini API is optional — the pipeline degrades gracefully to rule-based fallback if it is not running.
 
 ### 1. Install dependencies
 
@@ -126,15 +126,15 @@ npm install
 
 ```bash
 cp .env.example .env
-# Edit .env if you want to change the Ollama model or port
+# Edit .env if you want to change the Gemini API model or port
 ```
 
 Key variables (all optional — defaults shown):
 
 ```
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=llama3.2:1b
-OLLAMA_TIMEOUT_MS=120000
+GEMINI_API_KEY=your_key
+GEMINI_MODEL=gemini-2.5-flash
+
 TOP_K_RETRIEVAL=9
 TOP_K_FINAL=3
 PORT=3000
@@ -152,8 +152,8 @@ On first start the server will auto-build the FAISS index from `data/verses.json
 ### 4. (Optional) Run with a local LLM
 
 ```bash
-# Install Ollama from https://ollama.com, then:
-ollama pull llama3.2:1b
+
+
 # The server will detect it automatically on the next /ask call
 ```
 

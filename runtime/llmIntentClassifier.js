@@ -24,14 +24,17 @@ import fetch from "node-fetch";
 import { config as loadEnv } from "dotenv";
 import { fileURLToPath } from "url";
 import path from "path";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 loadEnv({ path: path.resolve(__dirname, "..", ".env") });
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || "gemma:2b";
-const OLLAMA_TIMEOUT  = parseInt(process.env.OLLAMA_TIMEOUT_MS || "120000", 10);
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL   = process.env.GEMINI_MODEL   || "gemini-2.5-flash";
+
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || "dummy_key_to_allow_init");
+const geminiModel = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
 // ---------------------------------------------------------------------------
 // Search bias presets — same as old intentAnalyzer.js (preserves retrieval behaviour)
@@ -231,37 +234,24 @@ Output:`;
 }
 
 // ---------------------------------------------------------------------------
-// LLM call with timeout
+// LLM call using Gemini
 // ---------------------------------------------------------------------------
-async function callOllamaForIntent(prompt) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT);
-
+async function callGeminiForIntent(prompt) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY environment variable is not set.");
+  }
+  
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        format: "json"
-      }),
-      signal: controller.signal
+    const result = await geminiModel.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+      }
     });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
-    }
-
-    const data = await res.json();
-    const text = (data?.response || "").trim();
-    if (!text) throw new Error("Empty Ollama response");
+    const text = result.response.text().trim();
+    if (!text) throw new Error("Empty Gemini response");
     return text;
   } catch (err) {
-    clearTimeout(timeoutId);
     throw err;
   }
 }
@@ -398,12 +388,12 @@ export async function analyzeIntent(query) {
   }
 
   // Stage 2: Pre-screener was uncertain — call LLM for semantic understanding
-  console.log("[llmIntent] Ambiguous query — calling Ollama for semantic classification...");
+  console.log("[llmIntent] Ambiguous query — calling Gemini for semantic classification...");
 
   let core;
   try {
     const prompt = buildPrompt(raw);
-    const responseText = await callOllamaForIntent(prompt);
+    const responseText = await callGeminiForIntent(prompt);
     const parsed = tryParseJson(responseText);
 
     if (!parsed) {
@@ -413,7 +403,7 @@ export async function analyzeIntent(query) {
       core = sanitizeIntentResult(parsed, raw);
     }
   } catch (err) {
-    console.warn("[llmIntent] Ollama unavailable:", err.message, "→ using rule fallback");
+    console.warn("[llmIntent] Gemini unavailable:", err.message, "→ using rule fallback");
     core = ruleFallback(raw);
   }
 
